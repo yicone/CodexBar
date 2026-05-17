@@ -669,8 +669,8 @@ struct ProvidersPane: View {
 
         if let error = error as? ManagedCodexAccountServiceError {
             let message = switch error {
-            case .loginFailed:
-                L("managed_login_failed")
+            case let .loginFailed(details, _):
+                details
             case .missingEmail:
                 L("managed_login_missing_email")
             case .workspaceSelectionCancelled:

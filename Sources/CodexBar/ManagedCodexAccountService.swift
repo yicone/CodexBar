@@ -35,7 +35,7 @@ protocol ManagedCodexWorkspaceSelecting: Sendable {
 }
 
 enum ManagedCodexAccountServiceError: Error, Equatable {
-    case loginFailed
+    case loginFailed(details: String, managedHomePath: String)
     case missingEmail
     case workspaceSelectionCancelled
     case unsafeManagedHome(String)
@@ -241,7 +241,7 @@ final class ManagedCodexAccountService {
             {
                 identity = recoveredIdentity
             } else {
-                throw ManagedCodexAccountServiceError.loginFailed
+                throw self.loginFailureError(result: result, homePath: homeURL.path)
             }
             guard let rawEmail = identity.email?.trimmingCharacters(in: .whitespacesAndNewlines),
                   !rawEmail.isEmpty
@@ -306,7 +306,9 @@ final class ManagedCodexAccountService {
                 accounts: snapshot.accounts.filter { replacedAccountIDs.contains($0.id) == false } + [account])
             try self.store.storeAccounts(updatedSnapshot)
         } catch {
-            try? self.removeManagedHomeIfSafe(atPath: homeURL.path)
+            if self.shouldPreserveFailedManagedHome(for: error) == false {
+                try? self.removeManagedHomeIfSafe(atPath: homeURL.path)
+            }
             throw error
         }
 
@@ -333,6 +335,35 @@ final class ManagedCodexAccountService {
         case .success, .missingBinary, .launchFailed:
             return nil
         }
+    }
+
+    private func shouldPreserveFailedManagedHome(for error: Error) -> Bool {
+        if case ManagedCodexAccountServiceError.loginFailed = error {
+            return true
+        }
+        return false
+    }
+
+    private func loginFailureError(
+        result: CodexLoginRunner.Result,
+        homePath: String) -> ManagedCodexAccountServiceError
+    {
+        let trimmed = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
+        let detail = if trimmed.isEmpty {
+            "Managed Codex login did not complete. No output was captured from `codex login`."
+        } else {
+            "Managed Codex login did not complete.\n\ncodex login output:\n\(self.trimmedLoginOutput(trimmed))"
+        }
+
+        return .loginFailed(
+            details: "\(detail)\n\nFailed managed home preserved at:\n\(homePath)",
+            managedHomePath: homePath)
+    }
+
+    private func trimmedLoginOutput(_ text: String, limit: Int = 1_500) -> String {
+        guard text.count > limit else { return text }
+        let endIndex = text.index(text.startIndex, offsetBy: limit)
+        return String(text[..<endIndex]) + "…"
     }
 
     func removeManagedAccount(id: UUID) async throws {

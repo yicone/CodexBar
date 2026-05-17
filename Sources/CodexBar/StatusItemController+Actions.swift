@@ -366,8 +366,8 @@ extension StatusItemController: StatusItemMenuPersistentActionDelegate {
                 message: "Wait for the current managed Codex login to finish before adding another account.")
         } else if let error = error as? ManagedCodexAccountServiceError {
             let message = switch error {
-            case .loginFailed:
-                L("managed_login_failed")
+            case let .loginFailed(details, _):
+                details
             case .missingEmail:
                 "Codex login completed, but no account email was available. " +
                     "Try again after confirming the account is fully signed in."

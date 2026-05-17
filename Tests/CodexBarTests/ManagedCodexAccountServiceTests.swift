@@ -603,8 +603,13 @@ struct ManagedCodexAccountServiceTests {
             identityReader: StubManagedCodexIdentityReader.emails([]),
             workspaceResolver: StubManagedCodexWorkspaceResolver())
 
-        await #expect(throws: ManagedCodexAccountServiceError.loginFailed) {
+        await #expect {
             try await service.authenticateManagedAccount()
+        } throws: { error in
+            guard case let ManagedCodexAccountServiceError.loginFailed(details, managedHomePath) = error else {
+                return false
+            }
+            return details.contains("codex login output:\nnope") && managedHomePath == outsideHome.path
         }
 
         #expect(FileManager.default.fileExists(atPath: outsideHome.path))
