@@ -208,6 +208,35 @@ struct TTYCommandRunnerEnvTests {
     }
 
     @Test
+    func `codex login style invocations stay on generic PTY flow`() throws {
+        let fm = FileManager.default
+        let dir = fm.temporaryDirectory.appendingPathComponent("codexbar-tty-\(UUID().uuidString)", isDirectory: true)
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: dir) }
+
+        let scriptURL = dir.appendingPathComponent("codex")
+        let script = """
+        #!/bin/sh
+        echo "login ready"
+        sleep 5
+        """
+        try script.write(to: scriptURL, atomically: true, encoding: .utf8)
+        try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)
+
+        let runner = TTYCommandRunner()
+        let result = try runner.run(
+            binary: scriptURL.path,
+            send: "",
+            options: .init(
+                timeout: 1,
+                stopOnSubstrings: ["login ready"],
+                settleAfterStop: 0.1))
+
+        #expect(result.text.contains("login ready"))
+        #expect(result.text.contains("/status") == false)
+    }
+
+    @Test
     func `post-exit drain processes trailing chunk through callback path`() {
         let callbackCounter = CallbackCounter()
         var reads: [TTYCommandRunner.DrainReadResult] = [

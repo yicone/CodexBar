@@ -526,8 +526,7 @@ public struct TTYCommandRunner {
 
         let deadline = Date().addingTimeInterval(options.timeout)
         let trimmed = script.trimmingCharacters(in: .whitespacesAndNewlines)
-        let isCodex = (binaryName == "codex") || options.forceCodexStatusMode
-        let isCodexStatus = isCodex && trimmed == "/status"
+        let isCodexStatus = options.forceCodexStatusMode || ((binaryName == "codex") && trimmed == "/status")
 
         var buffer = Data()
         func readChunkResult() -> (data: Data, terminalRead: Int, errno: Int32) {
@@ -582,7 +581,7 @@ public struct TTYCommandRunner {
         usleep(UInt32(options.initialDelay * 1_000_000))
 
         // Generic path for non-Codex (e.g. Claude /login)
-        if !isCodex {
+        if !isCodexStatus {
             if !trimmed.isEmpty {
                 try send(trimmed)
                 try send("\r")
