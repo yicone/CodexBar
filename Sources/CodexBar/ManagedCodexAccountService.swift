@@ -232,9 +232,17 @@ final class ManagedCodexAccountService {
 
         do {
             let result = await self.loginRunner.run(homePath: homeURL.path, timeout: timeout)
-            guard case .success = result.outcome else { throw ManagedCodexAccountServiceError.loginFailed }
-
-            let identity = try self.identityReader.loadAccountIdentity(homePath: homeURL.path)
+            let identity: CodexAuthBackedAccount
+            if case .success = result.outcome {
+                identity = try self.identityReader.loadAccountIdentity(homePath: homeURL.path)
+            } else if let recoveredIdentity = self.recoveredIdentityAfterIncompleteLogin(
+                result: result,
+                homePath: homeURL.path)
+            {
+                identity = recoveredIdentity
+            } else {
+                throw ManagedCodexAccountServiceError.loginFailed
+            }
             guard let rawEmail = identity.email?.trimmingCharacters(in: .whitespacesAndNewlines),
                   !rawEmail.isEmpty
             else {
@@ -306,6 +314,25 @@ final class ManagedCodexAccountService {
             try? self.removeManagedHomeIfSafe(atPath: existingHomePathToDelete)
         }
         return account
+    }
+
+    private func recoveredIdentityAfterIncompleteLogin(
+        result: CodexLoginRunner.Result,
+        homePath: String)
+        -> CodexAuthBackedAccount?
+    {
+        switch result.outcome {
+        case .timedOut, .failed:
+            guard let identity = try? self.identityReader.loadAccountIdentity(homePath: homePath),
+                  let email = identity.email?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !email.isEmpty
+            else {
+                return nil
+            }
+            return identity
+        case .success, .missingBinary, .launchFailed:
+            return nil
+        }
     }
 
     func removeManagedAccount(id: UUID) async throws {

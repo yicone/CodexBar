@@ -612,6 +612,34 @@ struct ManagedCodexAccountServiceTests {
     }
 
     @Test
+    func `failed login keeps managed account when credentials were already written`() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let store = InMemoryManagedCodexAccountStore(
+            accounts: ManagedCodexAccountSet(version: 1, accounts: []))
+        let service = ManagedCodexAccountService(
+            store: store,
+            homeFactory: TestManagedCodexHomeFactory(root: root),
+            loginRunner: WritingFailedManagedCodexLoginRunner(
+                credentials: CodexOAuthCredentials(
+                    accessToken: "access-token",
+                    refreshToken: "refresh-token",
+                    idToken: fakeManagedCodexJWT(email: "user@example.com", accountId: "workspace-team"),
+                    accountId: "workspace-team",
+                    lastRefresh: nil)),
+            identityReader: DefaultManagedCodexIdentityReader(),
+            workspaceResolver: StubManagedCodexWorkspaceResolver())
+
+        let account = try await service.authenticateManagedAccount()
+
+        #expect(account.email == "user@example.com")
+        #expect(account.providerAccountID == "workspace-team")
+        #expect(store.snapshot.accounts.count == 1)
+        #expect(FileManager.default.fileExists(atPath: account.managedHomePath))
+    }
+
+    @Test
     func `remove deletes managed home under managed root`() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         let home = root.appendingPathComponent("accounts/account-a", isDirectory: true)
@@ -856,6 +884,19 @@ private struct WritingManagedCodexLoginRunner: ManagedCodexLoginRunning {
     }
 }
 
+private struct WritingFailedManagedCodexLoginRunner: ManagedCodexLoginRunning {
+    let credentials: CodexOAuthCredentials
+
+    func run(homePath: String, timeout _: TimeInterval) async -> CodexLoginRunner.Result {
+        do {
+            try CodexOAuthCredentialsStore.save(self.credentials, env: ["CODEX_HOME": homePath])
+            return CodexLoginRunner.Result(outcome: .failed(status: 1), output: "callback response dropped")
+        } catch {
+            return CodexLoginRunner.Result(outcome: .failed(status: 1), output: String(describing: error))
+        }
+    }
+}
+
 private enum TestManagedCodexAccountStoreError: Error, Equatable {
     case writeFailed
 }
@@ -925,4 +966,24 @@ private struct StubManagedCodexWorkspaceSelector: ManagedCodexWorkspaceSelecting
     {
         workspaces.first { $0.workspaceAccountID == self.selectedWorkspaceID }
     }
+}
+
+private func fakeManagedCodexJWT(email: String, accountId: String) -> String {
+    let header = (try? JSONSerialization.data(withJSONObject: ["alg": "none"])) ?? Data()
+    let payload = (try? JSONSerialization.data(withJSONObject: [
+        "email": email,
+        "https://api.openai.com/auth": [
+            "chatgpt_account_id": accountId,
+            "chatgpt_plan_type": "pro",
+        ],
+    ])) ?? Data()
+
+    func base64URL(_ data: Data) -> String {
+        data.base64EncodedString()
+            .replacingOccurrences(of: "=", with: "")
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+    }
+
+    return "\(base64URL(header)).\(base64URL(payload))."
 }
